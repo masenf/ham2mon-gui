@@ -11,6 +11,7 @@
     "express": "^4.17.1",
     "get-folder-size": "^2.0.1",
     "node-cache": "^5.1.0",
-    "sanitize-filename": "^1.6.3"
+    "sanitize-filename": "^1.6.3",
+    "sqlite3": "^5.0.0"
   }
 }
