@@ -13,6 +13,8 @@ const path = require('path');
 const sanitize = require("sanitize-filename");
 const getSize = require('get-folder-size');
 const disk = require('diskusage');
+const chokidar = require('chokidar');
+const sqlite3 = require('sqlite3')
 
 const express = require('express');
 const app = express();
