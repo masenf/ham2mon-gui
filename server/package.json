@@ -12,6 +12,7 @@
     "get-folder-size": "^2.0.1",
     "node-cache": "^5.1.0",
     "sanitize-filename": "^1.6.3",
-    "sqlite3": "^5.0.0"
+    "sqlite3": "^5.0.0",
+    "wav-file-info": "^0.0.10"
   }
 }
