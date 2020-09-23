@@ -47,6 +47,32 @@ if (!port) {
   port = default_port;
 }
 
+let db_path = config.db_path;
+if (!db_path) {
+  db_path = "./db.v1.sqlite";
+}
+
+const DB = new sqlite3.Database(db_path, function(err) {
+  if (err) {
+    console.log(err)
+    process.exit();
+  }
+  console.log(`Connected to ${db_path} database.`)
+});
+DB.exec(
+  `CREATE TABLE IF NOT EXISTS calls (
+    id integer NOT NULL PRIMARY KEY,
+    frequency text NOT NULL,
+    time integer NOT NULL,
+    duration numeric NOT NULL,
+    relative_path text NOT NULL
+  );`, function(err) {
+  if (err) {
+    console.log(err)
+    process.exit();
+  }
+});
+
 function getSizePromise(dir) {
   return new Promise((resolve, reject) => {
     getSize(dir, (err, size) => {
