@@ -1,3 +1,10 @@
+try {
+  require('./config');
+} catch (e) {
+  console.log("Error: You must have a configuration file in server path! [config.json]");
+  process.exit();
+}
+const config = require('./config');
 const fs = require('fs');
 const util = require('util');
 const readdir = util.promisify(fs.readdir);
@@ -9,13 +16,34 @@ const disk = require('diskusage');
 
 const express = require('express');
 const app = express();
-const port = 8080;
+const default_port = 8080;
 const NodeCache = require("node-cache");
 const fileCache = new NodeCache({stdTTL: 10});
 
 app.use(cors());
 app.use(express.urlencoded({extended: true}));
 app.use(express.json());
+
+// handle values from config file
+
+let wavDir;
+wavDir = config.wavDir;
+if (!wavDir) {
+  console.log("Error: You must have a wavDir set in config file!");
+  process.exit();
+}
+
+let archiveDir;
+archiveDir = config.archiveDir;
+if (!archiveDir) {
+  console.log("Error: You must have a archiveDir set in config file!");
+  process.exit();
+}
+
+let port = config.port;
+if (!port) {
+  port = default_port;
+}
 
 function getSizePromise(dir) {
   return new Promise((resolve, reject) => {
@@ -27,20 +55,6 @@ function getSizePromise(dir) {
       }
     });
   })
-}
-
-let wavDir;
-
-try {
-  wavDir = require('./config').wavDir;
-
-  if (!wavDir) {
-    console.log("Error: You must have a wavDir set in config file!");
-    process.exit();
-  }
-} catch (e) {
-  console.log("Error: You must have a configuration file in server path! [config.json]");
-  process.exit();
 }
 
 async function getAllFiles(forceUpdate) {
