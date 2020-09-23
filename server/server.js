@@ -69,9 +69,10 @@ const DB = new sqlite3.Database(db_path, function(err) {
 DB.exec(
   `CREATE TABLE IF NOT EXISTS calls (
     id integer NOT NULL PRIMARY KEY,
-    frequency text NOT NULL,
+    freq text NOT NULL,
     time integer NOT NULL,
     duration numeric NOT NULL,
+    size integer NOT NULL,
     relative_path text NOT NULL
   );`, function(err) {
   if (err) {
@@ -109,9 +110,9 @@ function archive_call(path) {
         }
         console.log(`Moved ${path} to ${target_path}`);
         DB.run(
-          `INSERT INTO calls (frequency, time, duration, relative_path)
-           VALUES (?, ?, ?, ?);`,
-          [freq, time, duration, relative_path],
+          `INSERT INTO calls (freq, time, duration, size, relative_path)
+           VALUES (?, ?, ?, ?, ?);`,
+          [freq, time, duration, info.stats.size, relative_path],
           function(err) {
             if (err) {
               console.log(err);
@@ -159,6 +160,36 @@ function getSizePromise(dir) {
   })
 }
 
+function queryCalls(freq, afterTime, beforeTime) {
+  return new Promise((resolve, reject) => {
+    let query = "SELECT freq, time, duration, size, relative_path as file FROM calls";
+    let conditions = [];
+    let values = [];
+    if (freq) {
+      conditions[conditions.length] = "(freq = ?)";
+      values[values.length] = freq;
+    }
+    if (afterTime) {
+      conditions[conditions.length] = "(time > ?)";
+      values[values.length] = afterTime;
+    }
+    if (beforeTime) {
+      conditions[conditions.length] = "(time < ?)";
+      values[values.length] = beforeTime;
+    }
+    if (conditions.length > 1) {
+      query = `${query} WHERE ${conditions.join(' AND ')}`;
+    }
+    DB.all(query, values, (err, rows) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(rows);
+      }
+    });
+  });
+}
+
 async function getAllFiles(forceUpdate) {
   let fileData = fileCache.get("allFiles");
 
@@ -172,8 +203,6 @@ async function getAllFiles(forceUpdate) {
 setInterval(() => { rescan(wavDir); }, 20000);
 
 app.post('/data', async (req, res) => {
-  let fileData = await getAllFiles();
-
   let dirSize = fileCache.get('dirSize');
   let availableSpace = fileCache.get('availableSpace');
 
@@ -186,14 +215,13 @@ app.post('/data', async (req, res) => {
     fileCache.set('availableSpace', availableSpace, 60 * 60);
   }
 
-  const {fromTime} = req.body;
-
-  if (fromTime) {
-    fileData = fileData.filter(file => file.time >= fromTime);
-  }
+  const freq = req.body.freq;
+  const afterTime = req.body.afterTime;
+  const beforeTime = req.body.beforeTime;
+  console.log(req.body);
 
   res.json({
-    files: fileData,
+    files: await queryCalls(freq, afterTime, beforeTime),
     dirSize,
     freeSpace: availableSpace
   });
@@ -234,7 +262,7 @@ app.post('/delete', async (req, res) => {
   res.json({});
 });
 
-app.use('/static', express.static(wavDir));
+app.use('/static', express.static(archiveDir));
 app.use('/', express.static(path.join(__dirname, '../build')));
 
 app.listen(port, () => console.log(`Example app listening at http://localhost:${port}`));
