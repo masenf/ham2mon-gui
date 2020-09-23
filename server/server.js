@@ -15,6 +15,8 @@ const getSize = require('get-folder-size');
 const disk = require('diskusage');
 const chokidar = require('chokidar');
 const sqlite3 = require('sqlite3')
+const dayjs = require('dayjs');
+const wavFileInfo = require('wav-file-info');
 
 const express = require('express');
 const app = express();
@@ -52,9 +54,14 @@ if (!db_path) {
   db_path = "./db.v1.sqlite";
 }
 
+let minCallLength = config.minCallLength;
+if (!minCallLength) {
+  minCallLength = 3.5;
+}
+
 const DB = new sqlite3.Database(db_path, function(err) {
   if (err) {
-    console.log(err)
+    console.log(err);
     process.exit();
   }
   console.log(`Connected to ${db_path} database.`)
@@ -68,9 +75,76 @@ DB.exec(
     relative_path text NOT NULL
   );`, function(err) {
   if (err) {
-    console.log(err)
+    console.log(err);
     process.exit();
   }
+});
+
+// archive valid WAV files from ham2mon
+function archive_call(path) {
+  const pathComponents = path.split('/');
+  const fileName = pathComponents[pathComponents.length-1];
+  const [freq, time] = fileName.slice(0, -4).split('_');
+  // determine if we're dealing with a valid WAV
+  wavFileInfo.infoByFilename(path, function(err, info) {
+    if (err) {
+      console.log(err);
+      return;
+    }
+    let duration = info.stats.size / info.header.byte_rate;
+    if (duration < minCallLength) return;
+    // move it to the appropriate location
+    const archive_subdir = `${dayjs(time * 1000).format('YYYY/MM/DD')}`;
+    const relative_path = `${archive_subdir}/${fileName}`;
+    const target_path = `${archiveDir}/${relative_path}`;
+    fs.mkdir(`${archiveDir}/${archive_subdir}`, { recursive: true }, (err) => {
+      if (err) {
+        console.log(err);
+        return;
+      }
+      fs.rename(path, target_path, err => {
+        if (err) {
+          console.log(err);
+          return;
+        }
+        console.log(`Moved ${path} to ${target_path}`);
+        DB.run(
+          `INSERT INTO calls (frequency, time, duration, relative_path)
+           VALUES (?, ?, ?, ?);`,
+          [freq, time, duration, relative_path],
+          function(err) {
+            if (err) {
+              console.log(err);
+              return;
+            }
+        });
+      });
+    });
+  });
+}
+
+function rescan(dir) {
+  const files = fs.readdir(dir, (err, files) => {
+    files.map(file => {
+      archive_call(`${wavDir}/${file}`);
+    });
+  });
+}
+
+rescan(wavDir)
+
+// start watching the wavDir
+const watcher = chokidar.watch(wavDir, {
+  ignored: /(^|[\/\\])\../, // ignore dotfiles
+  persistent: true,
+  awaitWriteFinish: {
+    stabilityThreshold: 1000,
+    pollInterval: 200
+  },
+});
+watcher.on('add', path => {
+  console.log(`File ${path} has been added`);
+  archive_call(path);
 });
 
 function getSizePromise(dir) {
@@ -95,7 +169,7 @@ async function getAllFiles(forceUpdate) {
   return fileData;
 }
 
-setInterval(getAllFiles.bind(this, true), 9000);
+setInterval(() => { rescan(wavDir); }, 20000);
 
 app.post('/data', async (req, res) => {
   let fileData = await getAllFiles();
