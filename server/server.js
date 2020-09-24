@@ -63,7 +63,7 @@ if (!minCallLength) {
 }
 
 // create the sqlite database
-const DB = new sqlite3.Database(db_path, function(err) {
+const DB = new sqlite3.Database(db_path, err => {
   if (err) {
     console.log(err);
     process.exit();
@@ -125,7 +125,7 @@ async function archive_call(path) {
     `INSERT INTO calls (freq, time, duration, size, relative_path)
      VALUES (?, ?, ?, ?, ?) ON CONFLICT(relative_path) DO UPDATE SET duration = ?, size = ?;`,
     [freq, time, duration, wav_info.stats.size, relative_path, duration, wav_info.stats.size],
-    function(err) {
+    err => {
       if (err) {
         console.log(err);
         return;
