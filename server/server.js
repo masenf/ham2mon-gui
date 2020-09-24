@@ -189,6 +189,7 @@ async function queryCalls(freq, afterTime, beforeTime) {
     if (conditions.length > 0) {
       query = `${query} WHERE ${conditions.join(' AND ')}`;
     }
+    query = `${query} ORDER BY time ASC`;
     console.log(query, values);
     DB.all(query, values, (err, rows) => {
       if (err) {
