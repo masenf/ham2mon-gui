@@ -8,6 +8,9 @@ const config = require('./config');
 const fs = require('fs');
 const util = require('util');
 const readdir = util.promisify(fs.readdir);
+const stat = util.promisify(fs.stat);
+const mkdir = util.promisify(fs.mkdir);
+const rename = util.promisify(fs.rename);
 const cors = require('cors');
 const path = require('path');
 const sanitize = require("sanitize-filename");
@@ -17,6 +20,7 @@ const chokidar = require('chokidar');
 const sqlite3 = require('sqlite3')
 const dayjs = require('dayjs');
 const wavFileInfo = require('wav-file-info');
+const infoByFilename = util.promisify(wavFileInfo.infoByFilename);
 
 const express = require('express');
 const app = express();
@@ -66,65 +70,70 @@ const DB = new sqlite3.Database(db_path, function(err) {
   }
   console.log(`Connected to ${db_path} database.`)
 });
-DB.exec(
-  `CREATE TABLE IF NOT EXISTS calls (
-    id integer NOT NULL PRIMARY KEY,
-    freq text NOT NULL,
-    time integer NOT NULL,
-    duration numeric NOT NULL,
-    size integer NOT NULL,
-    relative_path text NOT NULL
-  );`, function(err) {
-  if (err) {
-    console.log(err);
-    process.exit();
+DB.get("SELECT name FROM sqlite_master WHERE type='table' AND name='calls';", (err, row) => {
+  if (!row) {
+    DB.exec(
+      `CREATE TABLE calls (
+        id integer NOT NULL PRIMARY KEY,
+        freq text NOT NULL,
+        time integer NOT NULL,
+        duration numeric NOT NULL,
+        size integer NOT NULL,
+        relative_path text NOT NULL UNIQUE
+      );`, function(err) {
+      if (err) {
+        console.log(err);
+        console.log("cannot create calls table");
+        process.exit();
+      }
+      // repopulate the database here
+      async function walk(dir) {
+        const subdirs = await readdir(dir);
+        console.log(subdirs);
+        const files = await Promise.all(subdirs.map(async (subdir) => {
+          const res = path.join(dir, subdir);
+          return (await stat(res)).isDirectory() ? walk(res) : await archive_call(res);
+        }));
+      }
+      console.log(`Scanning ${archiveDir} to populate fresh database`);
+      walk(archiveDir);
+    });
   }
 });
 
 // archive valid WAV files from ham2mon
-function archive_call(path) {
+async function archive_call(path) {
   const pathComponents = path.split('/');
   const fileName = pathComponents[pathComponents.length-1];
   const [freq, time] = fileName.slice(0, -4).split('_');
   // determine if we're dealing with a valid WAV
-  wavFileInfo.infoByFilename(path, function(err, info) {
-    if (err) {
-      console.log(err);
-      return;
-    }
-    let duration = info.stats.size / info.header.byte_rate;
-    if (duration < minCallLength) return;
-    // move it to the appropriate location
-    const archive_subdir = `${dayjs(time * 1000).format('YYYY/MM/DD')}`;
-    const relative_path = `${archive_subdir}/${fileName}`;
-    const target_path = `${archiveDir}/${relative_path}`;
-    fs.mkdir(`${archiveDir}/${archive_subdir}`, { recursive: true }, (err) => {
+  const wav_info = await infoByFilename(path);
+  const duration = wav_info.stats.size / wav_info.header.byte_rate;
+  if (duration < minCallLength) return;
+
+  // maybe move the wav to the appropriate location
+  const archive_subdir = `${dayjs(time * 1000).format('YYYY/MM/DD')}`;
+  const relative_path = `${archive_subdir}/${fileName}`;
+  const target_path = `${archiveDir}/${relative_path}`;
+  await mkdir(`${archiveDir}/${archive_subdir}`, { recursive: true });
+  // when repopulating the database, the path and target_path will be the same
+  if (path != target_path) {
+    await rename(path, target_path);
+    console.log(`Moved ${path} to ${target_path}`);
+  }
+  DB.run(
+    `INSERT INTO calls (freq, time, duration, size, relative_path)
+     VALUES (?, ?, ?, ?, ?) ON CONFLICT(relative_path) DO UPDATE SET duration = ?, size = ?;`,
+    [freq, time, duration, wav_info.stats.size, relative_path, duration, wav_info.stats.size],
+    function(err) {
       if (err) {
         console.log(err);
         return;
       }
-      fs.rename(path, target_path, err => {
-        if (err) {
-          console.log(err);
-          return;
-        }
-        console.log(`Moved ${path} to ${target_path}`);
-        DB.run(
-          `INSERT INTO calls (freq, time, duration, size, relative_path)
-           VALUES (?, ?, ?, ?, ?);`,
-          [freq, time, duration, info.stats.size, relative_path],
-          function(err) {
-            if (err) {
-              console.log(err);
-              return;
-            }
-        });
-      });
-    });
   });
 }
 
-function rescan(dir) {
+async function rescan(dir) {
   const files = fs.readdir(dir, (err, files) => {
     files.map(file => {
       archive_call(`${wavDir}/${file}`);
@@ -132,7 +141,7 @@ function rescan(dir) {
   });
 }
 
-rescan(wavDir)
+rescan(wavDir);
 
 // start watching the wavDir
 const watcher = chokidar.watch(wavDir, {
@@ -143,9 +152,9 @@ const watcher = chokidar.watch(wavDir, {
     pollInterval: 200
   },
 });
-watcher.on('add', path => {
+watcher.on('add', async path => {
   console.log(`File ${path} has been added`);
-  archive_call(path);
+  await archive_call(path);
 });
 
 function getSizePromise(dir) {
@@ -200,7 +209,7 @@ async function getAllFiles(forceUpdate) {
   return fileData;
 }
 
-setInterval(() => { rescan(wavDir); }, 20000);
+setInterval(rescan.bind(this, wavDir), 20000);
 
 app.post('/data', async (req, res) => {
   let dirSize = fileCache.get('dirSize');
