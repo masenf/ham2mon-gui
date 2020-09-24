@@ -33,7 +33,6 @@ app.use(express.urlencoded({extended: true}));
 app.use(express.json());
 
 // handle values from config file
-
 let wavDir;
 wavDir = config.wavDir;
 if (!wavDir) {
@@ -63,6 +62,7 @@ if (!minCallLength) {
   minCallLength = 3.5;
 }
 
+// create the sqlite database
 const DB = new sqlite3.Database(db_path, function(err) {
   if (err) {
     console.log(err);
@@ -101,7 +101,7 @@ DB.get("SELECT name FROM sqlite_master WHERE type='table' AND name='calls';", (e
   }
 });
 
-// archive valid WAV files from ham2mon
+// archive valid WAV files from ham2mon and store them in the database
 async function archive_call(path) {
   const pathComponents = path.split('/');
   const fileName = pathComponents[pathComponents.length-1];
@@ -169,7 +169,7 @@ function getSizePromise(dir) {
   })
 }
 
-function queryCalls(freq, afterTime, beforeTime) {
+async function queryCalls(freq, afterTime, beforeTime) {
   return new Promise((resolve, reject) => {
     let query = "SELECT freq, time, duration, size, relative_path as file FROM calls";
     let conditions = [];
@@ -186,9 +186,10 @@ function queryCalls(freq, afterTime, beforeTime) {
       conditions[conditions.length] = "(time < ?)";
       values[values.length] = beforeTime;
     }
-    if (conditions.length > 1) {
+    if (conditions.length > 0) {
       query = `${query} WHERE ${conditions.join(' AND ')}`;
     }
+    console.log(query, values);
     DB.all(query, values, (err, rows) => {
       if (err) {
         reject(err);
@@ -197,16 +198,6 @@ function queryCalls(freq, afterTime, beforeTime) {
       }
     });
   });
-}
-
-async function getAllFiles(forceUpdate) {
-  let fileData = fileCache.get("allFiles");
-
-  if (fileData === undefined || forceUpdate) {
-    fileData = await getFileData();
-    fileCache.set('allFiles', fileData);
-  }
-  return fileData;
 }
 
 setInterval(rescan.bind(this, wavDir), 20000);
@@ -224,11 +215,7 @@ app.post('/data', async (req, res) => {
     fileCache.set('availableSpace', availableSpace, 60 * 60);
   }
 
-  const freq = req.body.freq;
-  const afterTime = req.body.afterTime;
-  const beforeTime = req.body.beforeTime;
-  console.log(req.body);
-
+  const {freq, afterTime, beforeTime} = req.body;
   res.json({
     files: await queryCalls(freq, afterTime, beforeTime),
     dirSize,
@@ -238,21 +225,31 @@ app.post('/data', async (req, res) => {
 
 function deleteFiles(files) {
   for (let file of files) {
-    try {
-      fs.unlinkSync(wavDir + "/" + sanitize(file));
-      console.log("Deleted " + file);
-    } catch (e) {
-      console.log("Error deleting file " + file, e);
-    }
+    DB.get("SELECT id FROM calls WHERE relative_path = ?", [file], (err, row) => {
+      if (err) {
+        console.log(`ERROR: ${file} is not in the database, cannot delete`);
+        return;
+      }
+      try {
+        fs.unlinkSync(archiveDir + "/" + file);
+        DB.run("DELETE FROM calls WHERE id = ?", [row.id], (err) => {
+          if (err) {
+            console.log(`Error removing call ${file} (${row.id}) from database`, e);
+            return;
+          }
+          console.log("Deleted " + file);
+        });
+      } catch (e) {
+        console.log("Error deleting file " + file, e);
+      }
+    });
   }
 }
 
 app.post('/deleteBefore', async (req, res) => {
   const {deleteBeforeTime} = req.body;
 
-  const allFiles = await getFileData();
-  const filesToDelete = allFiles
-    .filter(file => file.time < deleteBeforeTime)
+  const filesToDelete = (await queryCalls(undefined, undefined, deleteBeforeTime))
     .map(file => file.file);
 
   deleteFiles(filesToDelete);
@@ -275,30 +272,3 @@ app.use('/static', express.static(archiveDir));
 app.use('/', express.static(path.join(__dirname, '../build')));
 
 app.listen(port, () => console.log(`Example app listening at http://localhost:${port}`));
-
-async function getFileData() {
-  const files = await readdir(wavDir);
-
-  const fileData = files.map(file => {
-    // Strip ext
-    const fileName = file.slice(0, -4);
-    const [freq, time] = fileName.split('_');
-    const stats = fs.statSync(wavDir + "/" + file);
-
-    return {
-      freq,
-      time,
-      file,
-      size: stats.size
-    };
-  });
-
-  console.log(fileData.length);
-
-  return fileData.filter(
-    file => {
-      return file.size > 60000
-    }
-  );
-}
-
