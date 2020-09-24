@@ -14,7 +14,6 @@ const rename = util.promisify(fs.rename);
 const cors = require('cors');
 const path = require('path');
 const sanitize = require("sanitize-filename");
-const getSize = require('get-folder-size');
 const disk = require('diskusage');
 const chokidar = require('chokidar');
 const sqlite3 = require('sqlite3')
@@ -109,7 +108,10 @@ async function archive_call(path) {
   // determine if we're dealing with a valid WAV
   const wav_info = await infoByFilename(path);
   const duration = wav_info.stats.size / wav_info.header.byte_rate;
-  if (duration < minCallLength) return;
+  if (duration < minCallLength) {
+    console.log("skipping because duration too short", wav_info);
+    return;
+  }
 
   // maybe move the wav to the appropriate location
   const archive_subdir = `${dayjs(time * 1000).format('YYYY/MM/DD')}`;
@@ -157,18 +159,6 @@ watcher.on('add', async path => {
   await archive_call(path);
 });
 
-function getSizePromise(dir) {
-  return new Promise((resolve, reject) => {
-    getSize(dir, (err, size) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(size);
-      }
-    });
-  })
-}
-
 async function queryCalls(freq, afterTime, beforeTime) {
   return new Promise((resolve, reject) => {
     let query = "SELECT freq, time, duration, size, relative_path as file FROM calls";
@@ -201,18 +191,27 @@ async function queryCalls(freq, afterTime, beforeTime) {
   });
 }
 
+async function queryCallSize() {
+  return new Promise((resolve, reject) => {
+    DB.get("SELECT SUM(size) as total_size FROM calls", (err, row) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(row.total_size);
+      }
+    });
+  });
+}
+
 setInterval(rescan.bind(this, wavDir), 20000);
 
 app.post('/data', async (req, res) => {
-  let dirSize = fileCache.get('dirSize');
+  const dirSize = await queryCallSize();
   let availableSpace = fileCache.get('availableSpace');
 
-  if (dirSize === undefined) {
-    dirSize = await getSizePromise(wavDir);
+  if (availableSpace === undefined) {
     const result = await disk.check(wavDir);
     availableSpace = result.available;
-
-    fileCache.set('dirSize', dirSize, 60 * 60);
     fileCache.set('availableSpace', availableSpace, 60 * 60);
   }
 
