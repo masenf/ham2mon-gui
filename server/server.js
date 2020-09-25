@@ -215,7 +215,11 @@ app.post('/data', async (req, res) => {
     fileCache.set('availableSpace', availableSpace, 60 * 60);
   }
 
-  const {freq, afterTime, beforeTime} = req.body;
+  const {freq, afterTime, beforeTime, fromTime} = req.body;
+  if (fromTime) {
+    console.log("fromTime is deprecated, use afterTime instead");
+    afterTime = fromTime;
+  }
   res.json({
     files: await queryCalls(freq, afterTime, beforeTime),
     dirSize,
