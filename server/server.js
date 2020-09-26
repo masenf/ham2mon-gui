@@ -218,10 +218,9 @@ app.post('/data', async (req, res) => {
   const {freq, afterTime, beforeTime, fromTime} = req.body;
   if (fromTime) {
     console.log("fromTime is deprecated, use afterTime instead");
-    afterTime = fromTime;
   }
   res.json({
-    files: await queryCalls(freq, afterTime, beforeTime),
+    files: await queryCalls(freq, fromTime ? fromTime : afterTime, beforeTime),
     dirSize,
     freeSpace: availableSpace
   });
