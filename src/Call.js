@@ -81,13 +81,13 @@ function Call({
       marginBottom: 14,
     },
   };
-  const {time, freq, file, size} = data;
+  const {time, freq, file, size, duration} = data;
 
   let color = primary4;
   let bg = '#FFF';
   let border = '1px solid #EEE';
 
-  if (size / 16000 > 10) {
+  if (duration > 10) {
     bg = secondary2;
   }
 
@@ -144,7 +144,7 @@ function Call({
       <div style={styles.rightBlock}>
         <div style={styles.name}>{freqItem ? freqItem.name : 'NO NAME'}</div>
         <div style={styles.infoBlock}>
-          <SmallDataBlock Icon={FaRegClock} data={sec2time(size / 16000)} />
+          <SmallDataBlock Icon={FaRegClock} data={sec2time(duration)} />
 
           <SmallDataBlock Icon={FaRegHdd} data={`${size / 1000}kb`} />
         </div>
