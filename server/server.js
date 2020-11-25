@@ -137,9 +137,11 @@ async function archive_call(path) {
 
 async function rescan(dir) {
   const files = fs.readdir(dir, (err, files) => {
-    files.map(file => {
-      archive_call(`${wavDir}/${file}`);
-    });
+    if (files) {
+      files.map(file => {
+        archive_call(`${wavDir}/${file}`);
+      });
+    }
   });
 }
 
