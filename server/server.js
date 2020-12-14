@@ -106,10 +106,22 @@ async function archive_call(path) {
   const fileName = pathComponents[pathComponents.length-1];
   const [freq, time] = fileName.slice(0, -4).split('_');
   // determine if we're dealing with a valid WAV
-  const wav_info = await infoByFilename(path);
-  const duration = wav_info.stats.size / wav_info.header.byte_rate;
-  if (duration < minCallLength) {
-    console.log("skipping because duration too short", wav_info);
+  let wav_info;
+  let duration;
+  try {
+    wav_info = await infoByFilename(path);
+    duration = wav_info.stats.size / wav_info.header.byte_rate;
+    if (duration < minCallLength) {
+      console.log(`deleting ${path}: duration too short`, wav_info);
+      try {
+        fs.unlinkSync(path);
+      } catch (err) {
+        console.log(err);
+      }
+      return;
+    }
+  } catch (err) {
+    console.log(`deleting ${path}: ${JSON.stringify(err)}`);
     try {
       fs.unlinkSync(path);
     } catch (err) {
