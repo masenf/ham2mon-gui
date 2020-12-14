@@ -19,7 +19,7 @@ export const Settings = ({
   freqStats,
   showSince,
   setShowSince,
-  setShowOnlyFreq,
+  setSelectedFreqs,
   handleDeleteBefore,
   freqData,
   autoloadDelay,
@@ -230,7 +230,8 @@ export const Settings = ({
     return (
       <Bar
         getElementAtEvent={(el) => {
-          setShowOnlyFreq(el[0]._view.label.split(' ')[0]);
+          const clickedFreq = el[0]._view.label.split(' ')[0];
+          setSelectedFreqs([clickedFreq]);
           handleClose();
         }}
         data={{
@@ -274,7 +275,7 @@ export const Settings = ({
         }}
       />
     );
-  }, [freqStats, handleClose, namedFreqStats, setShowOnlyFreq]);
+  }, [freqStats, handleClose, namedFreqStats, setSelectedFreqs]);
 
   return visible ? (
     <div style={styles.outerContainer}>
