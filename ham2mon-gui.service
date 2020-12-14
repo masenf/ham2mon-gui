@@ -1,0 +1,15 @@
+[Unit]
+Description=Run the ham2mon-gui
+After=network.target
+
+[Service]
+User=masen
+WorkingDirectory=/opt/ham2mon/ham2mon-gui
+ExecStart=yarn run prod
+
+# Restart every >2 seconds to avoid StartLimitInterval failure
+RestartSec=10
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
