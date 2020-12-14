@@ -110,6 +110,11 @@ async function archive_call(path) {
   const duration = wav_info.stats.size / wav_info.header.byte_rate;
   if (duration < minCallLength) {
     console.log("skipping because duration too short", wav_info);
+    try {
+      fs.unlinkSync(path);
+    } catch (err) {
+      console.log(err);
+    }
     return;
   }
 
