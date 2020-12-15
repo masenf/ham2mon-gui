@@ -6,7 +6,7 @@ import './App.css';
 import produce from 'immer';
 import {BooleanOption} from './BooleanOption';
 import {NowPlaying} from './NowPlaying';
-import {getFreqStats} from './Utils';
+import {getFreqStats, getParameterByNameSplit} from './Utils';
 import {useHotkeys} from 'react-hotkeys-hook';
 import Select from 'react-select';
 import useDimensions from 'react-use-dimensions';
@@ -264,6 +264,22 @@ function App() {
   }));
 
   const selectedFreqItems = selectedFreqs ? selectOptions.filter((opt) => selectedFreqs.includes(opt.value)) : [];
+
+  // parse `?freq=` param from url (on initial render only)
+  useEffect(() => {
+    const queryParamFreqs = getParameterByNameSplit("freq", ",");
+    if (queryParamFreqs.length > 0) {
+      setSelectedFreqs(queryParamFreqs);
+    }
+  }, []);
+
+  // update `?freq=` param in url for easier sharing
+  useEffect(() => {
+    if (window.history.replaceState) {
+        var newurl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?freq=' + selectedFreqs.join(",");
+        window.history.replaceState({path:newurl},'',newurl);
+    }
+  }, [selectedFreqs])
 
   const customStyles = {
     control: (base, state) => ({
