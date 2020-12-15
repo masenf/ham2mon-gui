@@ -199,7 +199,6 @@ async function queryCalls(freq, afterTime, beforeTime) {
       query = `${query} WHERE ${conditions.join(' AND ')}`;
     }
     query = `${query} ORDER BY time ASC`;
-    console.log(query, values);
     DB.all(query, values, (err, rows) => {
       if (err) {
         reject(err);
@@ -236,7 +235,8 @@ app.post('/data', async (req, res) => {
 
   const {freq, afterTime, beforeTime, fromTime} = req.body;
   if (fromTime) {
-    console.log("fromTime is deprecated, use afterTime instead");
+    // don't spam the logs
+    // console.log("fromTime is deprecated, use afterTime instead");
   }
   res.json({
     files: await queryCalls(freq, fromTime ? fromTime : afterTime, beforeTime),
