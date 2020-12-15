@@ -67,3 +67,17 @@ export function getFreqStats(statFiles) {
 
   return sortedStats.map((stat) => ({freq: stat[0], count: stat[1]}));
 }
+
+// http://stackoverflow.com/questions/901115/get-querystring-values-with-jquery/5158301#5158301
+export function getParameterByName(name) {
+    var match = RegExp('[?&]' + name + '=([^&]*)').exec(window.location.search);
+    return match && decodeURIComponent(match[1].replace(/\+/g, ' '));
+}
+
+export function getParameterByNameSplit(name, delimiter) {
+    const freq = getParameterByName(name);
+    if (freq) {
+        return freq.split(delimiter);
+    }
+    return [];
+}
