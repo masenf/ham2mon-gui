@@ -117,7 +117,7 @@ export const Settings = ({
     };
   });
 
-  const [serverIP, setServerIP] = useLocalStorage('setServerIP', '127.0.0.1');
+  const [serverIP, setServerIP] = useLocalStorage('setServerIP', window.location.hostname);
 
   const customStyles = {
     control: (base, state) => ({

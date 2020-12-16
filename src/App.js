@@ -110,7 +110,7 @@ function App() {
   const [freqData, setFreqData] = useLocalStorage('freqData', []);
   const [showRead, setShowRead] = useLocalStorage('showRead', true);
   const [selectedFreqs, setSelectedFreqs] = useLocalStorage('selectedFreqs', ["0"]);
-  const [serverIP, setServerIP] = useLocalStorage(
+  const [serverIP] = useLocalStorage(
     'setServerIP',
     window.location.hostname,
   );
