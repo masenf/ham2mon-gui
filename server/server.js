@@ -246,6 +246,8 @@ app.post('/data', async (req, res) => {
 });
 
 function deleteFiles(files) {
+  console.log("Not deleting for the time being");
+  return;
   for (let file of files) {
     DB.get("SELECT id FROM calls WHERE relative_path = ?", [file], (err, row) => {
       if (err) {
