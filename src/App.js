@@ -211,7 +211,7 @@ function App() {
         setDirSize(dirSize);
         setFreeSpace(freeSpace);
         if (files.length > 0) {
-          setCalls(c => c.concat(files));
+          setCalls(c => c.concat(files).sort((tc1, tc2) => tc1.time - tc2.time));
         }
       }).catch((e) => {
         console.log(`Cannot update data: ${e}`);
