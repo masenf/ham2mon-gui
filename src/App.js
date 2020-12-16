@@ -7,7 +7,7 @@ import produce from 'immer';
 import DateTimeRangePicker from '@wojtekmaj/react-datetimerange-picker';
 import {BooleanOption} from './BooleanOption';
 import {NowPlaying} from './NowPlaying';
-import {getFreqStats, getParameterByName, getParameterByNameSplit} from './Utils';
+import {getFreqStats, getParameterByName, getParameterByNameSplit, usePrevious} from './Utils';
 import {useHotkeys} from 'react-hotkeys-hook';
 import Select from 'react-select';
 import useDimensions from 'react-use-dimensions';
@@ -96,7 +96,6 @@ function App() {
   const [freqStats, setFreqStats] = useState([]);
   const [loading, setLoading] = useState(true);
   // array of [newest_call_time, last_checked_time]
-  const [lastUpdate, setLastUpdate] = useState([null, null]);
   const [callWaiting, setCallWaiting] = useState(false);
 
   const [mobileSettingsOpen, setMobileSettingsOpen] = useLocalStorage(
@@ -127,6 +126,7 @@ function App() {
 
   const serverUrl = `http://${serverIP}:8080/`;
 
+  const newestCallTime = calls.reduce((acc, cur) => Math.max(acc, cur.time), 0);
   const selectedCall = calls.find((call) => call.file === selected);
   const allFreqs = calls.map((call) => call.freq);
 
@@ -149,68 +149,87 @@ function App() {
   const end = end_param ? dayjs(end_param) : default_end;
   const start = start_param ? dayjs(start_param) : default_start;
   const [callDateRange, setCallDateRange] = useState([start.toDate(), end.toDate()]);
+  const prevCallDateRange = usePrevious(callDateRange);
   const [rangeWasSet, setRangeWasSet] = useState([start_param, end_param]);
 
-  const getData = useCallback(async (afterTime, beforeTime) => {
+  const fetchDataRange = useCallback(async (afterTime, beforeTime) => {
+    // return {files, dirSize, freeSpace}
+    if (!afterTime || !beforeTime) {
+      throw new Error("afterTime and beforeTime must be specified");
+    }
     setLoading(true);
-    const now = Math.floor(Date.now() / 1000);
-    let newestCall = null;
-    if (!afterTime) {
-      afterTime = Math.floor(callDateRange[0].valueOf() / 1000);
-      newestCall = now;
-    }
-    if (!beforeTime) {
-      beforeTime = Math.floor(callDateRange[1].valueOf() / 1000);
-    }
-
     try {
-      console.log(`requesting calls since ${dayjs(afterTime * 1000).format('YYYY-MM-DD HH:mm:ss')}`);
+      console.log(`requesting calls between ${dayjs(afterTime * 1000).format('YYYY-MM-DD HH:mm:ss')} and ${dayjs(beforeTime* 1000).format('YYYY-MM-DD HH:mm:ss')}`);
       const result = await axios.post(serverUrl + 'data', {
         afterTime: afterTime,
         beforeTime: beforeTime,
       });
-      const {files, dirSize, freeSpace} = result.data;
-
-      setDirSize(dirSize);
-      setFreeSpace(freeSpace);
-
-      if (files.length > 0) {
-        setCalls(c => c.concat(files));
-        newestCall = files.reduce((acc, cur) => Math.max(acc, cur.time), 0);
-      }
-      // set lastUpdate to trigger autoload
-      setLastUpdate(([lastCallTime, lastCheckTime]) =>
-        [(newestCall ? newestCall : lastCallTime), now]
-      );
-      if (!rangeWasSet[1]) {  // change end, unless it was explicitly set
-        setCallDateRange(([start, end]) => [start, new Date()]);
-      }
+      return result.data;
     } catch (e) {
       setLoadError(true);
     }
-
     setLoading(false);
-  }, [serverUrl, showSince]);
+  }, [serverUrl]);
 
-  // poll for new calls
+  const updateRange = useCallback(async (prevRange, curRange) => {
+    let fetchRange = {}
+
+    // if prevRange is undefined
+    //   or curRange[0] > prevRange[1]: non-overlap
+    //   or curRange[1] < prevRange[0]: non-overlap
+    //   ---> clear calls and grab the full curRange
+    // if curRange[0] < prevRange[0]: request older - fetch and update
+    // if curRange[1] > prevRange[1]: request newer - fetch and update
+    if (prevRange === undefined ||
+        prevRange[0] > curRange[1] ||
+        prevRange[1] < curRange[0]) {
+      // non-overlapping dataset or initial load
+      setCalls([]);  // clear existing calls
+      // fetch all data
+      fetchRange = {
+        afterTime: Math.floor(curRange[0].valueOf() / 1000),
+        beforeTime: Math.floor(curRange[1].valueOf() / 1000),
+      };
+    } else if (curRange[0] < prevRange[0]) {
+      // fetch earlier data
+      fetchRange = {
+        afterTime: Math.floor(curRange[0].valueOf() / 1000),
+        beforeTime: Math.floor(prevRange[0].valueOf() / 1000),
+      };
+    } else if (prevRange[1] < curRange[1]) {
+      // fetch newer data
+      fetchRange = {
+        afterTime: newestCallTime,
+        beforeTime: Math.floor(curRange[1].valueOf() / 1000),
+      };
+    } else {
+      return;  // filtering change only, no need to fetch
+    }
+    const {files, dirSize, freeSpace} = await fetchDataRange(fetchRange.afterTime, fetchRange.beforeTime);
+    setDirSize(dirSize);
+    setFreeSpace(freeSpace);
+    if (files.length > 0) {
+      setCalls(c => c.concat(files));
+    }
+  }, [fetchDataRange, newestCallTime]);
+
+  // poll for new calls by setting callDateRange with a timeout
   useEffect(() => {
     if (autoloadDelay <= 0) return;
-    const [lastCallTime, lastCheckTime] = lastUpdate;
-    if (!lastCallTime) return;
     const timer = setTimeout(() => {
       if (rangeWasSet[1]) {
         return;  // end date was set, so don't autoload
       }
       // request all calls since the last call
-      getData(lastCallTime + 0.001);
+      setCallDateRange(([start, end]) => [start, new Date()]);
     }, autoloadDelay * 1000);
     return () => clearTimeout(timer);
-  }, [lastUpdate, getData, autoloadDelay]);
+  }, [autoloadDelay, callDateRange, rangeWasSet]);
 
+  // call updateRange when callDateRange changes
   useEffect(() => {
-    setCalls([]);
-    getData();
-  }, [getData]);
+    updateRange(prevCallDateRange, callDateRange);
+  }, [prevCallDateRange, callDateRange, updateRange]);
 
   useEffect(() => {
     const orderedStats = getFreqStats(calls);
@@ -349,7 +368,7 @@ function App() {
         var newurl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?freq=' + selectedFreqs.join(",") + range;
         window.history.replaceState({path:newurl},'',newurl);
     }
-  }, [selectedFreqs, callDateRange])
+  }, [selectedFreqs, callDateRange, rangeWasSet])
 
   const customStyles = {
     control: (base, state) => ({
@@ -470,7 +489,7 @@ function App() {
                   });
 
                   setSelectedFreqs([]);
-                  getData();
+                  updateRange(undefined, callDateRange);
                 }}
               />
               <BooleanOption
