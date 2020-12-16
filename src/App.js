@@ -4,9 +4,10 @@ import Call from './Call';
 import {useLocalStorage} from './hooks/useLocalStorage';
 import './App.css';
 import produce from 'immer';
+import DateTimeRangePicker from '@wojtekmaj/react-datetimerange-picker';
 import {BooleanOption} from './BooleanOption';
 import {NowPlaying} from './NowPlaying';
-import {getFreqStats, getParameterByNameSplit} from './Utils';
+import {getFreqStats, getParameterByName, getParameterByNameSplit} from './Utils';
 import {useHotkeys} from 'react-hotkeys-hook';
 import Select from 'react-select';
 import useDimensions from 'react-use-dimensions';
@@ -141,19 +142,32 @@ function App() {
     filteredFreqs = uniqueFreqs.filter((freq) => hiddenArr.includes(freq));
   }
 
-  const getData = useCallback(async (fromTime) => {
+  const end_param = getParameterByName("end");
+  const start_param = getParameterByName("start");
+  const default_end = dayjs();
+  const default_start = default_end.subtract(showSince, "seconds");
+  const end = end_param ? dayjs(end_param) : default_end;
+  const start = start_param ? dayjs(start_param) : default_start;
+  const [callDateRange, setCallDateRange] = useState([start.toDate(), end.toDate()]);
+  const [rangeWasSet, setRangeWasSet] = useState([start_param, end_param]);
+
+  const getData = useCallback(async (afterTime, beforeTime) => {
     setLoading(true);
     const now = Math.floor(Date.now() / 1000);
     let newestCall = null;
-    if (!fromTime) {
-      fromTime = now - showSince;
+    if (!afterTime) {
+      afterTime = Math.floor(callDateRange[0].valueOf() / 1000);
       newestCall = now;
+    }
+    if (!beforeTime) {
+      beforeTime = Math.floor(callDateRange[1].valueOf() / 1000);
     }
 
     try {
-      console.log(`requesting calls since ${dayjs(fromTime * 1000).format('YYYY-MM-DD HH:mm:ss')}`);
+      console.log(`requesting calls since ${dayjs(afterTime * 1000).format('YYYY-MM-DD HH:mm:ss')}`);
       const result = await axios.post(serverUrl + 'data', {
-        fromTime: fromTime
+        afterTime: afterTime,
+        beforeTime: beforeTime,
       });
       const {files, dirSize, freeSpace} = result.data;
 
@@ -168,6 +182,9 @@ function App() {
       setLastUpdate(([lastCallTime, lastCheckTime]) =>
         [(newestCall ? newestCall : lastCallTime), now]
       );
+      if (!rangeWasSet[1]) {  // change end, unless it was explicitly set
+        setCallDateRange(([start, end]) => [start, new Date()]);
+      }
     } catch (e) {
       setLoadError(true);
     }
@@ -181,6 +198,9 @@ function App() {
     const [lastCallTime, lastCheckTime] = lastUpdate;
     if (!lastCallTime) return;
     const timer = setTimeout(() => {
+      if (rangeWasSet[1]) {
+        return;  // end date was set, so don't autoload
+      }
       // request all calls since the last call
       getData(lastCallTime + 0.001);
     }, autoloadDelay * 1000);
@@ -215,6 +235,11 @@ function App() {
   if (showHidden) {
     filteredCalls = calls.filter((call) => hiddenArr.includes(call.freq));
   }
+
+  filteredCalls = filteredCalls.filter((call) => {
+    const callTime = call.time * 1000;
+    return (callDateRange[0].valueOf() <= callTime && callTime <= callDateRange[1].valueOf());
+  });
 
   if (selectedFreqs) {
     filteredCalls = filteredCalls.filter((call) => selectedFreqs.includes(call.freq));
@@ -315,12 +340,16 @@ function App() {
   }, []);
 
   // update `?freq=` param in url for easier sharing
+  // update `?start=&end=` param in url for easier sharing
   useEffect(() => {
     if (window.history.replaceState) {
-        var newurl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?freq=' + selectedFreqs.join(",");
+        const [start, end] = callDateRange.map((d) => dayjs(d).format());
+        const [startWasSet, endWasSet] = rangeWasSet;
+        const range = (startWasSet ? `&start=${start}` : "") + (endWasSet ? `&end=${end}`: "");
+        var newurl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?freq=' + selectedFreqs.join(",") + range;
         window.history.replaceState({path:newurl},'',newurl);
     }
-  }, [selectedFreqs])
+  }, [selectedFreqs, callDateRange])
 
   const customStyles = {
     control: (base, state) => ({
@@ -479,6 +508,20 @@ function App() {
 
                   setListenedArr(tmpListenedArr);
                 }}
+              />
+            </div>
+            <div>
+              <DateTimeRangePicker
+                onChange={(v) => {
+                  setRangeWasSet([true, true]);
+                  if (v) {
+                    setCallDateRange(v);
+                  } else {
+                    setCallDateRange([default_start.toDate(), default_end.toDate()]);
+                    setRangeWasSet([false, false]);
+                  }
+                }}
+                value={callDateRange}
               />
             </div>
             <div>
