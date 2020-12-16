@@ -157,7 +157,6 @@ function App() {
     if (!afterTime || !beforeTime) {
       throw new Error("afterTime and beforeTime must be specified");
     }
-    setLoading(true);
     try {
       console.log(`requesting calls between ${dayjs(afterTime * 1000).format('YYYY-MM-DD HH:mm:ss')} and ${dayjs(beforeTime* 1000).format('YYYY-MM-DD HH:mm:ss')}`);
       const result = await axios.post(serverUrl + 'data', {
@@ -167,8 +166,8 @@ function App() {
       return result.data;
     } catch (e) {
       setLoadError(true);
+      throw e;
     }
-    setLoading(false);
   }, [serverUrl]);
 
   const updateRange = useCallback(async (prevRange, curRange) => {
@@ -199,18 +198,24 @@ function App() {
     } else if (prevRange[1] < curRange[1]) {
       // fetch newer data
       fetchRange = {
-        afterTime: newestCallTime,
+        afterTime: newestCallTime ? newestCallTime : Math.floor(prevRange[1].valueOf() / 1000),
         beforeTime: Math.floor(curRange[1].valueOf() / 1000),
       };
     } else {
       return;  // filtering change only, no need to fetch
     }
-    const {files, dirSize, freeSpace} = await fetchDataRange(fetchRange.afterTime, fetchRange.beforeTime);
-    setDirSize(dirSize);
-    setFreeSpace(freeSpace);
-    if (files.length > 0) {
-      setCalls(c => c.concat(files));
+    try {
+      setLoading(true);
+      const {files, dirSize, freeSpace} = await fetchDataRange(fetchRange.afterTime, fetchRange.beforeTime);
+      setDirSize(dirSize);
+      setFreeSpace(freeSpace);
+      if (files.length > 0) {
+        setCalls(c => c.concat(files));
+      }
+    } catch (e) {
+      console.log(`Cannot update data: ${e}`);
     }
+    setLoading(false);
   }, [fetchDataRange, newestCallTime]);
 
   // poll for new calls by setting callDateRange with a timeout
