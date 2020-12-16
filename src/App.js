@@ -171,7 +171,7 @@ function App() {
   }, [serverUrl]);
 
   const updateRange = useCallback(async (prevRange, curRange) => {
-    let fetchRange = {}
+    let fetchRanges = [];
 
     // if prevRange is undefined
     //   or curRange[0] > prevRange[1]: non-overlap
@@ -185,37 +185,38 @@ function App() {
       // non-overlapping dataset or initial load
       setCalls([]);  // clear existing calls
       // fetch all data
-      fetchRange = {
+      fetchRanges.push({
         afterTime: Math.floor(curRange[0].valueOf() / 1000),
         beforeTime: Math.floor(curRange[1].valueOf() / 1000),
-      };
-    } else if (curRange[0] < prevRange[0]) {
-      // fetch earlier data
-      fetchRange = {
-        afterTime: Math.floor(curRange[0].valueOf() / 1000),
-        beforeTime: Math.floor(prevRange[0].valueOf() / 1000),
-      };
-    } else if (prevRange[1] < curRange[1]) {
-      // fetch newer data
-      fetchRange = {
-        afterTime: newestCallTime ? newestCallTime : Math.floor(prevRange[1].valueOf() / 1000),
-        beforeTime: Math.floor(curRange[1].valueOf() / 1000),
-      };
+      });
     } else {
-      return;  // filtering change only, no need to fetch
-    }
-    try {
-      setLoading(true);
-      const {files, dirSize, freeSpace} = await fetchDataRange(fetchRange.afterTime, fetchRange.beforeTime);
-      setDirSize(dirSize);
-      setFreeSpace(freeSpace);
-      if (files.length > 0) {
-        setCalls(c => c.concat(files));
+      if (curRange[0] < prevRange[0]) {
+        // fetch earlier data
+        fetchRanges.push({
+          afterTime: Math.floor(curRange[0].valueOf() / 1000),
+          beforeTime: Math.floor(prevRange[0].valueOf() / 1000),
+        });
       }
-    } catch (e) {
-      console.log(`Cannot update data: ${e}`);
+      if (prevRange[1] < curRange[1]) {
+        // fetch newer data
+        fetchRanges.push({
+          afterTime: newestCallTime ? newestCallTime : Math.floor(prevRange[1].valueOf() / 1000),
+          beforeTime: Math.floor(curRange[1].valueOf() / 1000),
+        });
+      }
     }
-    setLoading(false);
+    setLoading(true);
+    Promise.all(fetchRanges.map(async (range) => {
+      fetchDataRange(range.afterTime, range.beforeTime).then(({files, dirSize, freeSpace}) => {
+        setDirSize(dirSize);
+        setFreeSpace(freeSpace);
+        if (files.length > 0) {
+          setCalls(c => c.concat(files));
+        }
+      }).catch((e) => {
+        console.log(`Cannot update data: ${e}`);
+      });
+    })).then(() => setLoading(false));
   }, [fetchDataRange, newestCallTime]);
 
   // poll for new calls by setting callDateRange with a timeout
