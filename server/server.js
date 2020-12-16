@@ -58,7 +58,7 @@ if (!db_path) {
 
 let minCallLength = config.minCallLength;
 if (!minCallLength) {
-  minCallLength = 3.5;
+  minCallLength = 2.2;
 }
 
 // create the sqlite database
