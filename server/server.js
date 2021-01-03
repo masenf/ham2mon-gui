@@ -112,7 +112,7 @@ async function archive_call(path) {
     wav_info = await infoByFilename(path);
     duration = wav_info.stats.size / wav_info.header.byte_rate;
     if (duration < minCallLength) {
-      console.log(`deleting ${path}: duration too short`, wav_info);
+      console.log(`deleting ${path}: duration too short ${wav_info.duration}`);
       try {
         fs.unlinkSync(path);
       } catch (err) {
