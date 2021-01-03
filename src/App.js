@@ -110,10 +110,6 @@ function App() {
   const [freqData, setFreqData] = useLocalStorage('freqData', []);
   const [showRead, setShowRead] = useLocalStorage('showRead', true);
   const [selectedFreqs, setSelectedFreqs] = useLocalStorage('selectedFreqs', ["0"]);
-  const [serverIP] = useLocalStorage(
-    'setServerIP',
-    window.location.hostname,
-  );
   const [showSince, setShowSince] = useLocalStorage(
     'setShowSince',
     60 * 60 * 24,
@@ -123,8 +119,6 @@ function App() {
   const filteredCallRefs = useRef([]);
 
   const [buttonsRef, buttonsDimensions] = useDimensions();
-
-  const serverUrl = `http://${serverIP}:8080/`;
 
   const newestCallTime = calls.reduce((acc, cur) => Math.max(acc, cur.time), 0);
   const selectedCall = calls.find((call) => call.file === selected);
@@ -152,14 +146,14 @@ function App() {
   const prevCallDateRange = usePrevious(callDateRange);
   const [rangeWasSet, setRangeWasSet] = useState([start_param, end_param]);
 
-  const fetchDataRange = useCallback(async (afterTime, beforeTime) => {
+  const fetchDataRange = (async (afterTime, beforeTime) => {
     // return {files, dirSize, freeSpace}
     if (!afterTime || !beforeTime) {
       throw new Error("afterTime and beforeTime must be specified");
     }
     try {
       console.log(`requesting calls between ${dayjs(afterTime * 1000).format('YYYY-MM-DD HH:mm:ss')} and ${dayjs(beforeTime* 1000).format('YYYY-MM-DD HH:mm:ss')}`);
-      const result = await axios.post(serverUrl + 'data', {
+      const result = await axios.post('/data', {
         afterTime: afterTime,
         beforeTime: beforeTime,
       });
@@ -168,7 +162,7 @@ function App() {
       setLoadError(true);
       throw e;
     }
-  }, [serverUrl]);
+  });
 
   const updateRange = useCallback(async (prevRange, curRange) => {
     let fetchRanges = [];
@@ -387,7 +381,7 @@ function App() {
   };
 
   const handleDeleteBefore = async (beforeTime) => {
-    await axios.post(`${serverUrl}deleteBefore`, {
+    await axios.post(`/deleteBefore`, {
       deleteBeforeTime: Math.floor(Date.now() / 1000) - beforeTime,
     });
 
@@ -490,7 +484,7 @@ function App() {
                       .map((call) => call.file);
                   }
 
-                  await axios.post(`${serverUrl}delete`, {
+                  await axios.post(`/delete`, {
                     files: filesToDelete,
                   });
 
@@ -613,7 +607,7 @@ function App() {
             // set autoPlay for taps and keyboard input
             autoPlay={true}
             preload={'none'}
-            src={selected ? `${serverUrl}static/${selected}` : null}
+            src={selected ? `/static/${selected}` : null}
             controls
           />
         </div>

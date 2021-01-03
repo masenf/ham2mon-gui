@@ -117,8 +117,6 @@ export const Settings = ({
     };
   });
 
-  const [serverIP, setServerIP] = useLocalStorage('setServerIP', window.location.hostname);
-
   const customStyles = {
     control: (base, state) => ({
       ...base,
@@ -309,30 +307,6 @@ export const Settings = ({
             Activity for last {callsSinceSelectValue.label.props.children}
           </div>
           {getBarChart()}
-        </div>
-
-        <div style={styles.selectBlock}>
-          <span style={{color: primary4}}>Server IP</span>
-          <input
-            style={{
-              padding: 8,
-              fontSize: 14,
-              marginLeft: 8,
-              border: `1px solid ${primary}`,
-              borderRadius: '4px 0 0 4px',
-              color: primary4,
-            }}
-            type={'text'}
-            value={serverIP}
-            onChange={(event) => {
-              setServerIP(event.target.value);
-            }}
-          />
-          <Button
-            title={'Set'}
-            type={'input'}
-            onClick={() => window.location.reload()}
-          />
         </div>
 
         <div style={styles.selectBlock}>
