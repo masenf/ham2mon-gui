@@ -58,7 +58,7 @@ if (!db_path) {
 
 let minCallLength = config.minCallLength;
 if (!minCallLength) {
-  minCallLength = 3.5;
+  minCallLength = 2.2;
 }
 
 // create the sqlite database
@@ -112,7 +112,7 @@ async function archive_call(path) {
     wav_info = await infoByFilename(path);
     duration = wav_info.stats.size / wav_info.header.byte_rate;
     if (duration < minCallLength) {
-      console.log(`deleting ${path}: duration too short`, wav_info);
+      console.log(`deleting ${path}: duration too short ${wav_info.duration}`);
       try {
         fs.unlinkSync(path);
       } catch (err) {
@@ -246,6 +246,8 @@ app.post('/data', async (req, res) => {
 });
 
 function deleteFiles(files) {
+  console.log("Not deleting for the time being");
+  return;
   for (let file of files) {
     DB.get("SELECT id FROM calls WHERE relative_path = ?", [file], (err, row) => {
       if (err) {

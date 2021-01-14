@@ -4,9 +4,10 @@ import Call from './Call';
 import {useLocalStorage} from './hooks/useLocalStorage';
 import './App.css';
 import produce from 'immer';
+import DateTimeRangePicker from '@wojtekmaj/react-datetimerange-picker';
 import {BooleanOption} from './BooleanOption';
 import {NowPlaying} from './NowPlaying';
-import {getFreqStats, getParameterByNameSplit} from './Utils';
+import {getFreqStats, getParameterByName, getParameterByNameSplit, usePrevious} from './Utils';
 import {useHotkeys} from 'react-hotkeys-hook';
 import Select from 'react-select';
 import useDimensions from 'react-use-dimensions';
@@ -95,7 +96,6 @@ function App() {
   const [freqStats, setFreqStats] = useState([]);
   const [loading, setLoading] = useState(true);
   // array of [newest_call_time, last_checked_time]
-  const [lastUpdate, setLastUpdate] = useState([null, null]);
   const [callWaiting, setCallWaiting] = useState(false);
 
   const [mobileSettingsOpen, setMobileSettingsOpen] = useLocalStorage(
@@ -110,10 +110,6 @@ function App() {
   const [freqData, setFreqData] = useLocalStorage('freqData', []);
   const [showRead, setShowRead] = useLocalStorage('showRead', true);
   const [selectedFreqs, setSelectedFreqs] = useLocalStorage('selectedFreqs', ["0"]);
-  const [serverIP, setServerIP] = useLocalStorage(
-    'setServerIP',
-    window.location.hostname,
-  );
   const [showSince, setShowSince] = useLocalStorage(
     'setShowSince',
     60 * 60 * 24,
@@ -124,8 +120,7 @@ function App() {
 
   const [buttonsRef, buttonsDimensions] = useDimensions();
 
-  const serverUrl = `http://${serverIP}:8080/`;
-
+  const newestCallTime = calls.reduce((acc, cur) => Math.max(acc, cur.time), 0);
   const selectedCall = calls.find((call) => call.file === selected);
   const allFreqs = calls.map((call) => call.freq);
 
@@ -141,56 +136,100 @@ function App() {
     filteredFreqs = uniqueFreqs.filter((freq) => hiddenArr.includes(freq));
   }
 
-  const getData = useCallback(async (fromTime) => {
-    setLoading(true);
-    const now = Math.floor(Date.now() / 1000);
-    let newestCall = null;
-    if (!fromTime) {
-      fromTime = now - showSince;
-      newestCall = now;
+  const end_param = getParameterByName("end");
+  const start_param = getParameterByName("start");
+  const default_end = dayjs();
+  const default_start = default_end.subtract(showSince, "seconds");
+  const end = end_param ? dayjs(end_param) : default_end;
+  const start = start_param ? dayjs(start_param) : default_start;
+  const [callDateRange, setCallDateRange] = useState([start.toDate(), end.toDate()]);
+  const prevCallDateRange = usePrevious(callDateRange);
+  const [rangeWasSet, setRangeWasSet] = useState([start_param, end_param]);
+
+  const fetchDataRange = (async (afterTime, beforeTime) => {
+    // return {files, dirSize, freeSpace}
+    if (!afterTime || !beforeTime) {
+      throw new Error("afterTime and beforeTime must be specified");
     }
-
     try {
-      console.log(`requesting calls since ${dayjs(fromTime * 1000).format('YYYY-MM-DD HH:mm:ss')}`);
-      const result = await axios.post(serverUrl + 'data', {
-        fromTime: fromTime
+      console.log(`requesting calls between ${dayjs(afterTime * 1000).format('YYYY-MM-DD HH:mm:ss')} and ${dayjs(beforeTime* 1000).format('YYYY-MM-DD HH:mm:ss')}`);
+      const result = await axios.post('/data', {
+        afterTime: afterTime,
+        beforeTime: beforeTime,
       });
-      const {files, dirSize, freeSpace} = result.data;
-
-      setDirSize(dirSize);
-      setFreeSpace(freeSpace);
-
-      if (files.length > 0) {
-        setCalls(c => c.concat(files));
-        newestCall = files.reduce((acc, cur) => Math.max(acc, cur.time), 0);
-      }
-      // set lastUpdate to trigger autoload
-      setLastUpdate(([lastCallTime, lastCheckTime]) =>
-        [(newestCall ? newestCall : lastCallTime), now]
-      );
+      return result.data;
     } catch (e) {
       setLoadError(true);
+      throw e;
     }
+  });
 
-    setLoading(false);
-  }, [serverUrl, showSince]);
+  const updateRange = useCallback(async (prevRange, curRange) => {
+    let fetchRanges = [];
 
-  // poll for new calls
+    // if prevRange is undefined
+    //   or curRange[0] > prevRange[1]: non-overlap
+    //   or curRange[1] < prevRange[0]: non-overlap
+    //   ---> clear calls and grab the full curRange
+    // if curRange[0] < prevRange[0]: request older - fetch and update
+    // if curRange[1] > prevRange[1]: request newer - fetch and update
+    if (prevRange === undefined ||
+        prevRange[0] > curRange[1] ||
+        prevRange[1] < curRange[0]) {
+      // non-overlapping dataset or initial load
+      setCalls([]);  // clear existing calls
+      // fetch all data
+      fetchRanges.push({
+        afterTime: Math.floor(curRange[0].valueOf() / 1000),
+        beforeTime: Math.floor(curRange[1].valueOf() / 1000),
+      });
+    } else {
+      if (curRange[0] < prevRange[0]) {
+        // fetch earlier data
+        fetchRanges.push({
+          afterTime: Math.floor(curRange[0].valueOf() / 1000),
+          beforeTime: Math.floor(prevRange[0].valueOf() / 1000),
+        });
+      }
+      if (prevRange[1] < curRange[1]) {
+        // fetch newer data
+        fetchRanges.push({
+          afterTime: newestCallTime ? newestCallTime : Math.floor(prevRange[1].valueOf() / 1000),
+          beforeTime: Math.floor(curRange[1].valueOf() / 1000),
+        });
+      }
+    }
+    setLoading(true);
+    Promise.all(fetchRanges.map(async (range) => {
+      fetchDataRange(range.afterTime, range.beforeTime).then(({files, dirSize, freeSpace}) => {
+        setDirSize(dirSize);
+        setFreeSpace(freeSpace);
+        if (files.length > 0) {
+          setCalls(c => c.concat(files).sort((tc1, tc2) => tc1.time - tc2.time));
+        }
+      }).catch((e) => {
+        console.log(`Cannot update data: ${e}`);
+      });
+    })).then(() => setLoading(false));
+  }, [fetchDataRange, newestCallTime]);
+
+  // poll for new calls by setting callDateRange with a timeout
   useEffect(() => {
     if (autoloadDelay <= 0) return;
-    const [lastCallTime, lastCheckTime] = lastUpdate;
-    if (!lastCallTime) return;
     const timer = setTimeout(() => {
+      if (rangeWasSet[1]) {
+        return;  // end date was set, so don't autoload
+      }
       // request all calls since the last call
-      getData(lastCallTime + 0.001);
+      setCallDateRange(([start, end]) => [start, new Date()]);
     }, autoloadDelay * 1000);
     return () => clearTimeout(timer);
-  }, [lastUpdate, getData, autoloadDelay]);
+  }, [autoloadDelay, callDateRange, rangeWasSet]);
 
+  // call updateRange when callDateRange changes
   useEffect(() => {
-    setCalls([]);
-    getData();
-  }, [getData]);
+    updateRange(prevCallDateRange, callDateRange);
+  }, [prevCallDateRange, callDateRange, updateRange]);
 
   useEffect(() => {
     const orderedStats = getFreqStats(calls);
@@ -215,6 +254,11 @@ function App() {
   if (showHidden) {
     filteredCalls = calls.filter((call) => hiddenArr.includes(call.freq));
   }
+
+  filteredCalls = filteredCalls.filter((call) => {
+    const callTime = call.time * 1000;
+    return (callDateRange[0].valueOf() <= callTime && callTime <= callDateRange[1].valueOf());
+  });
 
   if (selectedFreqs) {
     filteredCalls = filteredCalls.filter((call) => selectedFreqs.includes(call.freq));
@@ -315,12 +359,16 @@ function App() {
   }, []);
 
   // update `?freq=` param in url for easier sharing
+  // update `?start=&end=` param in url for easier sharing
   useEffect(() => {
     if (window.history.replaceState) {
-        var newurl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?freq=' + selectedFreqs.join(",");
+        const [start, end] = callDateRange.map((d) => dayjs(d).format());
+        const [startWasSet, endWasSet] = rangeWasSet;
+        const range = (startWasSet ? `&start=${start}` : "") + (endWasSet ? `&end=${end}`: "");
+        var newurl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?freq=' + selectedFreqs.join(",") + range;
         window.history.replaceState({path:newurl},'',newurl);
     }
-  }, [selectedFreqs])
+  }, [selectedFreqs, callDateRange, rangeWasSet])
 
   const customStyles = {
     control: (base, state) => ({
@@ -333,7 +381,7 @@ function App() {
   };
 
   const handleDeleteBefore = async (beforeTime) => {
-    await axios.post(`${serverUrl}deleteBefore`, {
+    await axios.post(`/deleteBefore`, {
       deleteBeforeTime: Math.floor(Date.now() / 1000) - beforeTime,
     });
 
@@ -436,12 +484,12 @@ function App() {
                       .map((call) => call.file);
                   }
 
-                  await axios.post(`${serverUrl}delete`, {
+                  await axios.post(`/delete`, {
                     files: filesToDelete,
                   });
 
                   setSelectedFreqs([]);
-                  getData();
+                  updateRange(undefined, callDateRange);
                 }}
               />
               <BooleanOption
@@ -479,6 +527,20 @@ function App() {
 
                   setListenedArr(tmpListenedArr);
                 }}
+              />
+            </div>
+            <div>
+              <DateTimeRangePicker
+                onChange={(v) => {
+                  setRangeWasSet([true, true]);
+                  if (v) {
+                    setCallDateRange(v);
+                  } else {
+                    setCallDateRange([default_start.toDate(), default_end.toDate()]);
+                    setRangeWasSet([false, false]);
+                  }
+                }}
+                value={callDateRange}
               />
             </div>
             <div>
@@ -545,7 +607,7 @@ function App() {
             // set autoPlay for taps and keyboard input
             autoPlay={true}
             preload={'none'}
-            src={selected ? `${serverUrl}static/${selected}` : null}
+            src={selected ? `/static/${selected}` : null}
             controls
           />
         </div>

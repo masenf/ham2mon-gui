@@ -1,3 +1,5 @@
+import {useEffect, useRef} from 'react';
+
 export const sec2time = (timeInSeconds, useHours) => {
   const pad = function (num, size) {
     return ('000' + num).slice(size * -1);
@@ -80,4 +82,13 @@ export function getParameterByNameSplit(name, delimiter) {
         return freq.split(delimiter);
     }
     return [];
+}
+
+// https://blog.logrocket.com/how-to-get-previous-props-state-with-react-hooks/
+export function usePrevious(value) {
+  const ref = useRef();
+  useEffect(() => {
+    ref.current = value;
+  });
+  return ref.current;
 }
